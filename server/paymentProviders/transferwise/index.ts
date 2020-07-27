@@ -7,7 +7,7 @@ import * as transferwise from '../../lib/transferwise';
 import models from '../../models';
 import { Quote, RecipientAccount, Transfer } from '../../types/transferwise';
 
-export const blackListedCurrenciesForBusinesProfiles = ['BRL'];
+export const blockedCurrenciesForBusinesProfiles = ['BRL'];
 
 async function populateProfileId(connectedAccount): Promise<void> {
   if (!connectedAccount.data?.id) {
@@ -114,12 +114,12 @@ async function getAvailableCurrencies(host: any): Promise<{ code: string; minInv
     throw new TransferwiseError('Host is not connected to Transferwise', 'transferwise.error.notConnected');
   }
   await populateProfileId(connectedAccount);
-  const currencyBlackList = connectedAccount.data?.type === 'business' ? blackListedCurrenciesForBusinesProfiles : [];
+  const currencyBlockList = connectedAccount.data?.type === 'business' ? blockedCurrenciesForBusinesProfiles : [];
 
   const pairs = await transferwise.getCurrencyPairs(connectedAccount.token);
   const source = pairs.sourceCurrencies.find(sc => sc.currencyCode === host.currency);
   const currencies = source.targetCurrencies
-    .filter(c => !currencyBlackList.includes(c.currencyCode))
+    .filter(c => !currencyBlockList.includes(c.currencyCode))
     .map(c => ({ code: c.currencyCode, minInvoiceAmount: c.minInvoiceAmount }));
   cache.set(cacheKey, currencies, 24 * 60 * 60 /* a whole day and we could probably increase */);
   return currencies;
