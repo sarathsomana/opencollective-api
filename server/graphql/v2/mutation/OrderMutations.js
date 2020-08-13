@@ -1,12 +1,15 @@
 import { GraphQLNonNull } from 'graphql';
+import { isNil, pick } from 'lodash';
 
 import activities from '../../../constants/activities';
 import status from '../../../constants/order_status';
-import { floatAmountToCents } from '../../../lib/math';
 import models from '../../../models';
 import { NotFound, Unauthorized } from '../../errors';
+import { createOrder as createOrderLegacy } from '../../v1/mutations/orders';
+import { getIntervalFromOrderFrequency } from '../enum/OrderFrequency';
 import { getDecodedId } from '../identifiers';
-import { AmountInput } from '../input/AmountInput';
+import { AmountInput, getValueInCentsFromAmountInput } from '../input/AmountInput';
+import { OrderCreateInput } from '../input/OrderCreateInput';
 import { OrderReferenceInput } from '../input/OrderReferenceInput';
 import { fetchPaymentMethodWithReference, PaymentMethodReferenceInput } from '../input/PaymentMethodReferenceInput';
 import { fetchTierWithReference, TierReferenceInput } from '../input/TierReferenceInput';
@@ -19,6 +22,41 @@ const modelArray = [
 ];
 
 const orderMutations = {
+  createOrder: {
+    type: GraphQLNonNull(Order),
+    description: 'To submit a new order',
+    args: {
+      order: {
+        type: new GraphQLNonNull(OrderCreateInput),
+      },
+    },
+    async resolve(_, args, req) {
+      if (!req.remoteUser) {
+        throw new Error('Unauthenticated orders are not supported yet');
+      } else if (order.taxes?.length > 1) {
+        throw new Error('Attaching multiple taxes is not supported yet');
+      }
+
+      const { order } = args;
+      const { platformContributionAmount } = order;
+      const tax = order.taxes?.[0];
+      const platformFee = platformContributionAmount && getValueInCentsFromAmountInput(platformContributionAmount);
+      const paymentMethod = await fetchPaymentMethodWithReference(args.paymentMethod);
+      const legacyOrderObj = {
+        quantity: order.quantity,
+        amount: getValueInCentsFromAmountInput(order.amount),
+        interval: getIntervalFromOrderFrequency(order.frequency),
+        taxAmount: tax && getValueInCentsFromAmountInput(tax.amount),
+        countryISO: tax?.country,
+        taxIdNumber: tax?.idNumber,
+        isFeesOnTop: !isNil(platformFee),
+        paymentMethod: pick(paymentMethod.dataValues, ['id', 'uuid']),
+        platformFee,
+      };
+
+      return createOrderLegacy(legacyOrderObj, req.loaders, req.remoteUser, req.ip);
+    },
+  },
   cancelOrder: {
     type: Order,
     description: 'Cancel an order',
@@ -199,7 +237,7 @@ const orderMutations = {
           }
         }
 
-        const amountInCents = floatAmountToCents(args.amount.value);
+        const amountInCents = getValueInCentsFromAmountInput(args.amount);
 
         // The amount can never be less than $1.00
         if (amountInCents < 100) {
@@ -208,7 +246,6 @@ const orderMutations = {
 
         // If using a named tier, amount can never be less than the minimum amount
         if (tierInfo && tierInfo.amountType === 'FLEXIBLE' && amountInCents < tierInfo.minimumAmount) {
-          console.log('error');
           throw new Error('Amount is less than minimum value allowed for this Tier.');
         }
 
