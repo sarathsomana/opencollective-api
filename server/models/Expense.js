@@ -100,6 +100,10 @@ export default function (Sequelize, DataTypes) {
         allowNull: false,
       },
 
+      longDescription: {
+        type: DataTypes.TEXT,
+      },
+
       /**
        * @deprecated Now using PaymentMethodId. The reason why this hadn't been removed yet
        * is because we'd need to migrate the legacy `donation` payout types that exist in the
