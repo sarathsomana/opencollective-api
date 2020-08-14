@@ -472,6 +472,12 @@ export default (Sequelize, DataTypes) => {
       return;
     }
 
+    const platformFeeToDonationRate = Math.abs(
+      transaction.platformFeeInHostCurrency / transaction.amountInHostCurrency,
+    );
+    const paymentProcessorFeeInHostCurrency = toNegative(
+      Math.round(transaction.paymentProcessorFeeInHostCurrency * platformFeeToDonationRate),
+    );
     const platformCurrencyFxRate = await getFxRate(transaction.currency, FEES_ON_TOP_TRANSACTION_PROPERTIES.currency);
     const donationTransaction = defaultsDeep(
       {},
@@ -482,9 +488,10 @@ export default (Sequelize, DataTypes) => {
         amountInHostCurrency: Math.round(Math.abs(transaction.platformFeeInHostCurrency) * platformCurrencyFxRate),
         platformFeeInHostCurrency: 0,
         hostFeeInHostCurrency: 0,
-        paymentProcessorFeeInHostCurrency: 0,
+        paymentProcessorFeeInHostCurrency: Math.round(paymentProcessorFeeInHostCurrency * platformCurrencyFxRate),
         netAmountInCollectiveCurrency: Math.round(
-          Math.abs(transaction.platformFeeInHostCurrency) * platformCurrencyFxRate,
+          (Math.abs(transaction.platformFeeInHostCurrency) + paymentProcessorFeeInHostCurrency) *
+            platformCurrencyFxRate,
         ),
         // This is always 1 because OpenCollective and OpenCollective Inc (Host) are in USD.
         hostCurrencyFxRate: 1,
@@ -498,6 +505,8 @@ export default (Sequelize, DataTypes) => {
     await Transaction.createDoubleEntry(donationTransaction);
 
     // Remove fees from main transaction
+    transaction.paymentProcessorFeeInHostCurrency =
+      transaction.paymentProcessorFeeInHostCurrency - paymentProcessorFeeInHostCurrency;
     transaction.amountInHostCurrency = transaction.amountInHostCurrency + transaction.platformFeeInHostCurrency;
     transaction.amount =
       transaction.amount + transaction.platformFeeInHostCurrency / (transaction.hostCurrencyFxRate || 1);
